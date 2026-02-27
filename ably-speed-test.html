@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html><head>
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+</head><body>
+<pre id="out" style="font-size:14px;padding:20px;background:#111;color:#0f0;height:100vh;overflow:auto"></pre>
+<script>
+const KEY = '74GMLQ.EAUWhQ:KsOte05eYk10UCBweQBwitSMO-mC-kAG9FH_9r2oxgc';
+const CH = 'speed-test-' + Date.now();
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += s + '\n'; out.scrollTop = out.scrollHeight; };
+
+async function run() {
+  log('=== Ably Publish/Subscribe Speed Test ===\n');
+
+  const pub = new Ably.Realtime({ key: KEY, clientId: 'pub' });
+  const sub = new Ably.Realtime({ key: KEY, clientId: 'sub' });
+
+  await new Promise(r => { pub.connection.once('connected', r); });
+  await new Promise(r => { sub.connection.once('connected', r); });
+  log('Both clients connected.\n');
+
+  const chPub = pub.channels.get(CH);
+  const chSub = sub.channels.get(CH);
+
+  // Test 1: Round-trip latency for single messages
+  log('--- Test 1: Single message round-trip latency (10 messages) ---');
+  const latencies = [];
+  for (let i = 0; i < 10; i++) {
+    const t0 = performance.now();
+    const p = new Promise(r => {
+      chSub.subscribe('ping', function h(m) {
+        chSub.unsubscribe('ping', h);
+        r(performance.now() - t0);
+      });
+    });
+    await chPub.publish('ping', 'x');
+    const lat = await p;
+    latencies.push(lat);
+    log(`  Message ${i+1}: ${lat.toFixed(1)}ms`);
+  }
+  const avg = latencies.reduce((a,b)=>a+b,0)/latencies.length;
+  log(`  Average: ${avg.toFixed(1)}ms\n`);
+
+  // Test 2: Burst publish - fire-and-forget, measure receive rate
+  log('--- Test 2: Burst 100 tokens (fire-and-forget publish) ---');
+  let received = 0;
+  const t0burst = performance.now();
+  let firstAt = 0, lastAt = 0;
+  const burstDone = new Promise(r => {
+    chSub.subscribe('burst', (m) => {
+      if (received === 0) firstAt = performance.now();
+      received++;
+      lastAt = performance.now();
+      if (received === 100) { chSub.unsubscribe('burst'); r(); }
+    });
+  });
+  const pubStart = performance.now();
+  for (let i = 0; i < 100; i++) {
+    chPub.publish('burst', 'tok' + i);
+  }
+  const pubEnd = performance.now();
+  log(`  Published 100 in ${(pubEnd - pubStart).toFixed(1)}ms (fire-and-forget)`);
+  await burstDone;
+  log(`  First received at: ${(firstAt - pubStart).toFixed(1)}ms`);
+  log(`  Last received at: ${(lastAt - pubStart).toFixed(1)}ms`);
+  log(`  Receive window: ${(lastAt - firstAt).toFixed(1)}ms`);
+  log(`  Effective rate: ${(100 / ((lastAt - firstAt) / 1000)).toFixed(0)} msgs/sec\n`);
+
+  // Test 3: Paced publish with small delays (like our demo)
+  log('--- Test 3: Paced publish (5ms delay between tokens, 50 tokens) ---');
+  let recv3 = 0;
+  let first3 = 0, last3 = 0;
+  const times3 = [];
+  const done3 = new Promise(r => {
+    chSub.subscribe('paced', (m) => {
+      const now = performance.now();
+      if (recv3 === 0) first3 = now;
+      if (recv3 > 0) times3.push(now - last3);
+      last3 = now;
+      recv3++;
+      if (recv3 === 50) { chSub.unsubscribe('paced'); r(); }
+    });
+  });
+  const p3start = performance.now();
+  for (let i = 0; i < 50; i++) {
+    chPub.publish('paced', 'c' + i);
+    await new Promise(r => setTimeout(r, 5));
+  }
+  const p3pubEnd = performance.now();
+  log(`  Published 50 in ${(p3pubEnd - p3start).toFixed(1)}ms`);
+  await done3;
+  log(`  First received at: ${(first3 - p3start).toFixed(1)}ms`);
+  log(`  Last received at: ${(last3 - p3start).toFixed(1)}ms`);
+  const avgGap = times3.reduce((a,b)=>a+b,0)/times3.length;
+  log(`  Avg gap between receives: ${avgGap.toFixed(1)}ms`);
+  log(`  Max gap: ${Math.max(...times3).toFixed(1)}ms`);
+  log(`  Min gap: ${Math.min(...times3).toFixed(1)}ms\n`);
+
+  // Test 4: Paced publish with await (like our old code)
+  log('--- Test 4: Paced publish with AWAIT (5ms delay, 50 tokens) ---');
+  let recv4 = 0;
+  let first4 = 0, last4 = 0;
+  const done4 = new Promise(r => {
+    chSub.subscribe('awaited', (m) => {
+      const now = performance.now();
+      if (recv4 === 0) first4 = now;
+      last4 = now;
+      recv4++;
+      if (recv4 === 50) { chSub.unsubscribe('awaited'); r(); }
+    });
+  });
+  const p4start = performance.now();
+  for (let i = 0; i < 50; i++) {
+    await chPub.publish('awaited', 'c' + i);
+    await new Promise(r => setTimeout(r, 5));
+  }
+  const p4pubEnd = performance.now();
+  log(`  Published 50 in ${(p4pubEnd - p4start).toFixed(1)}ms`);
+  await done4;
+  log(`  Last received at: ${(last4 - p4start).toFixed(1)}ms`);
+  log(`  Effective rate: ${(50 / ((last4 - first4) / 1000)).toFixed(0)} msgs/sec\n`);
+
+  log('=== Done ===');
+  pub.close(); sub.close();
+}
+
+run().catch(e => log('ERROR: ' + e.message));
+</script>
+</body></html>

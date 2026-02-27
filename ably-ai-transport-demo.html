@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0d12;
+  --panel: #0e1218;
+  --card: #141a24;
+  --border: #1e2a3c;
+  --accent: #f97316;
+  --indigo: #6366f1;
+  --text: #b8c6d8;
+  --text-dim: #5c6e84;
+  --text-bright: #e2ecf8;
+  --green: #22c55e;
+  --red: #ef4444;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  height: 52px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.agent-av {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; flex-shrink: 0;
+}
+.agent-av.client { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+.agent-av.server { background: linear-gradient(135deg, #f97316, #f59e0b); }
+.header-title { font-weight: 600; color: var(--text-bright); font-size: 15px; }
+.header-sub { font-size: 12px; color: var(--text-dim); margin-top: 1px; }
+.spacer { flex: 1; }
+.pill {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--text-dim);
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+.conn-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text-dim); transition: background 0.3s; flex-shrink: 0;
+}
+.conn-dot.ok { background: var(--green); }
+.conn-dot.stream { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+.conn-dot.err { background: var(--red); }
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(249,115,22,0.4); }
+  50% { box-shadow: 0 0 0 5px rgba(249,115,22,0); }
+}
+.mono-pill {
+  font-family: 'SF Mono','Fira Code',monospace;
+  font-size: 11px; color: var(--text-dim);
+  background: var(--card); border: 1px solid var(--border);
+  padding: 4px 10px; border-radius: 20px;
+}
+.link-btn {
+  font-size: 11.5px; color: var(--text-dim);
+  text-decoration: underline; cursor: pointer;
+  transition: color 0.15s;
+}
+.link-btn:hover { color: var(--accent); }
+
+/* Resume banner */
+.resume-banner {
+  display: none; align-items: center; gap: 10px;
+  padding: 7px 20px;
+  background: linear-gradient(90deg, rgba(99,102,241,0.08), transparent);
+  border-bottom: 1px solid rgba(99,102,241,0.15);
+  font-size: 12px; color: #a5b4fc; flex-shrink: 0;
+  animation: slideDown 0.3s ease-out;
+}
+.resume-banner.visible { display: flex; }
+@keyframes slideDown {
+  from { opacity:0; transform:translateY(-6px); }
+  to { opacity:1; transform:translateY(0); }
+}
+.banner-tag {
+  background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.25);
+  border-radius: 20px; padding: 2px 10px; font-size: 11px; font-weight: 600;
+}
+.banner-right { margin-left:auto; font-size:11px; color:rgba(165,180,252,0.5); font-style:italic; }
+
+/* Messages */
+.messages {
+  flex: 1; overflow-y: auto; padding: 24px 20px;
+  display: flex; flex-direction: column; gap: 16px;
+  max-width: 760px; width: 100%; margin: 0 auto;
+}
+.messages::-webkit-scrollbar { width: 4px; }
+.messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.msg {
+  display: flex; gap: 10px;
+  animation: msgIn 0.18s ease-out;
+}
+@keyframes msgIn {
+  from { opacity:0; transform:translateY(5px); }
+  to { opacity:1; transform:translateY(0); }
+}
+.msg.you { flex-direction: row-reverse; }
+
+.msg-av {
+  width: 30px; height: 30px; border-radius: 50%;
+  flex-shrink: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 14px; margin-top: 2px;
+}
+.msg-av.ai { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+.msg-av.you { background: linear-gradient(135deg, #0f766e, #0d9488); }
+
+.msg-body { max-width: 580px; min-width: 0; }
+
+.msg-name { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; font-weight: 500; }
+.msg.you .msg-name { text-align: right; }
+
+.bubble {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  border-top-left-radius: 4px;
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg.you .bubble {
+  background: rgba(99,102,241,0.1);
+  border-color: rgba(99,102,241,0.2);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 4px;
+  color: var(--text-bright);
+}
+.bubble.streaming {
+  border-color: rgba(249,115,22,0.25);
+}
+.bubble.streaming::after {
+  content: '\25CB';
+  animation: blink 0.55s step-end infinite;
+  color: var(--accent);
+  margin-left: 1px;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+.bubble.interrupted {
+  border-color: rgba(239,68,68,0.2);
+  opacity: 0.85;
+}
+.int-label {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 8px; font-size: 11px; color: #fca5a5;
+  background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2);
+  border-radius: 20px; padding: 2px 9px;
+}
+
+/* Typing */
+.typing { display: flex; gap: 10px; animation: msgIn 0.18s ease-out; }
+.typing-dots {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; border-top-left-radius: 4px;
+  padding: 14px 18px; display: flex; align-items: center; gap: 5px;
+}
+.tdot {
+  width: 6px; height: 6px; background: var(--text-dim);
+  border-radius: 50%; animation: bounce 1.2s ease-in-out infinite;
+}
+.tdot:nth-child(2) { animation-delay: 0.18s; }
+.tdot:nth-child(3) { animation-delay: 0.36s; }
+@keyframes bounce {
+  0%,60%,100% { transform:translateY(0); opacity:0.5; }
+  30% { transform:translateY(-4px); opacity:1; }
+}
+
+/* Callout */
+.callout {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: 8px; font-size: 12px;
+  animation: msgIn 0.2s ease-out; align-self: center;
+}
+.callout.resume { background: rgba(99,102,241,0.06); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.12); }
+.callout.stop { background: rgba(239,68,68,0.06); color: #fca5a5; border: 1px solid rgba(239,68,68,0.12); }
+
+/* Stream bar */
+.stream-bar {
+  display: none; align-items: center; gap: 12px;
+  padding: 5px 20px; border-top: 1px solid var(--border);
+  background: rgba(249,115,22,0.03); font-size: 11.5px; color: var(--text-dim);
+  flex-shrink: 0;
+}
+.stream-bar.on { display: flex; }
+.s-pulse {
+  width: 6px; height: 6px; background: var(--accent);
+  border-radius: 50%; animation: pulse 1s ease-in-out infinite; flex-shrink: 0;
+}
+.s-val { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+.s-right {
+  margin-left: auto; font-size: 10px; color: rgba(249,115,22,0.4);
+  text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500;
+}
+
+/* Input */
+.input-bar {
+  padding: 12px 20px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; background: var(--panel);
+  flex-shrink: 0; max-width: 800px; width: 100%; margin: 0 auto;
+}
+.stop-btn {
+  padding: 9px 14px; background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.25); border-radius: 10px;
+  color: #fca5a5; font-size: 13px; font-weight: 500;
+  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  display: none;
+}
+.stop-btn.on { display: flex; align-items: center; gap: 6px; }
+.stop-btn:hover { background: rgba(239,68,68,0.18); }
+.stop-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.inp {
+  flex: 1; background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px; color: var(--text-bright);
+  font-size: 14px; outline: none; font-family: inherit;
+  transition: border-color 0.15s;
+}
+.inp:focus { border-color: rgba(99,102,241,0.4); }
+.inp::placeholder { color: var(--text-dim); }
+.inp:disabled { opacity: 0.5; }
+
+.send-btn {
+  padding: 10px 20px; background: var(--indigo); border: none;
+  border-radius: 10px; color: white; font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: background 0.15s;
+}
+.send-btn:hover { background: #5558e0; }
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---- Agent panel styles ---- */
+.agent-panel {
+  flex: 1; overflow-y: auto; padding: 24px 20px;
+  max-width: 900px; width: 100%; margin: 0 auto;
+}
+.agent-hero {
+  text-align: center; padding: 40px 0 30px;
+}
+.agent-hero h2 {
+  font-size: 20px; color: var(--text-bright); font-weight: 600; margin-bottom: 6px;
+}
+.agent-hero p { color: var(--text-dim); font-size: 13px; line-height: 1.6; max-width: 500px; margin: 0 auto; }
+
+.agent-instructions {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px 24px; margin-bottom: 20px;
+}
+.agent-instructions h3 {
+  font-size: 13px; color: var(--accent); text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 12px; font-weight: 600;
+}
+.agent-instructions ol {
+  list-style: none; counter-reset: steps; padding: 0;
+}
+.agent-instructions li {
+  counter-increment: steps;
+  padding: 8px 0; color: var(--text); font-size: 14px; line-height: 1.6;
+  border-bottom: 1px solid rgba(30,42,60,0.5);
+}
+.agent-instructions li:last-child { border-bottom: none; }
+.agent-instructions li::before {
+  content: counter(steps);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; background: rgba(249,115,22,0.15);
+  border-radius: 50%; font-size: 11px; font-weight: 700;
+  color: var(--accent); margin-right: 10px;
+}
+.agent-instructions code {
+  background: rgba(249,115,22,0.1); color: var(--accent);
+  padding: 2px 6px; border-radius: 4px; font-size: 12px;
+  font-family: 'SF Mono','Fira Code',monospace;
+}
+.agent-instructions strong { color: var(--text-bright); }
+
+.log-section {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px 20px; margin-top: 20px;
+}
+.log-section h3 {
+  font-size: 12px; color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 12px; font-weight: 600;
+}
+.log-entries {
+  font-family: 'SF Mono','Fira Code',monospace;
+  font-size: 12px; color: var(--text-dim);
+  max-height: 300px; overflow-y: auto;
+}
+.log-entries::-webkit-scrollbar { width: 3px; }
+.log-entries::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.log-entry { padding: 3px 0; border-bottom: 1px solid rgba(30,42,60,0.3); }
+.log-entry .ts { color: var(--text-dim); opacity: 0.5; }
+.log-entry .ev { color: var(--accent); font-weight: 600; }
+.log-entry .ev.start { color: var(--green); }
+.log-entry .ev.end { color: var(--indigo); }
+.log-entry .ev.int { color: var(--red); }
+.log-entry .data { color: var(--text); }
+
+.status-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; background: rgba(34,197,94,0.05);
+  border: 1px solid rgba(34,197,94,0.15); border-radius: 10px;
+  margin-bottom: 20px; font-size: 13px;
+}
+.status-bar .dot {
+  width: 8px; height: 8px; background: var(--green);
+  border-radius: 50%; flex-shrink: 0;
+}
+.status-bar.streaming { background: rgba(249,115,22,0.05); border-color: rgba(249,115,22,0.15); }
+.status-bar.streaming .dot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+
+/* ---- Phone mode ---- */
+body.phone-mode {
+  background: #1a1a2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  overflow: hidden;
+}
+.phone-frame {
+  width: 375px;
+  height: 740px;
+  border-radius: 40px;
+  border: 3px solid #333;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  box-shadow: 0 0 0 8px #111, 0 20px 60px rgba(0,0,0,0.6);
+  position: relative;
+}
+.phone-frame::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 28px;
+  background: #111;
+  border-radius: 0 0 16px 16px;
+  z-index: 10;
+  border: 2px solid #222;
+  border-top: none;
+}
+.phone-frame #app {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.phone-frame .header {
+  padding: 36px 14px 8px;
+  height: auto;
+  gap: 8px;
+}
+.phone-frame .header-title { font-size: 14px; }
+.phone-frame .header-sub { font-size: 11px; }
+.phone-frame .mono-pill { display: none; }
+.phone-frame .messages { padding: 14px 12px; gap: 12px; }
+.phone-frame .bubble { padding: 10px 13px; font-size: 13px; line-height: 1.6; }
+.phone-frame .msg-av { width: 26px; height: 26px; font-size: 12px; }
+.phone-frame .msg-name { font-size: 10px; }
+.phone-frame .input-bar { padding: 8px 10px; gap: 6px; }
+.phone-frame .inp { padding: 9px 12px; font-size: 13px; border-radius: 20px; }
+.phone-frame .send-btn { padding: 9px 16px; font-size: 13px; border-radius: 20px; }
+.phone-frame .stop-btn { padding: 7px 10px; font-size: 12px; border-radius: 20px; }
+.phone-frame .stream-bar { padding: 4px 12px; font-size: 10.5px; }
+.phone-frame .resume-banner { padding: 5px 12px; font-size: 11px; }
+.phone-frame .resume-banner .banner-right { display: none; }
+.phone-frame .callout { font-size: 11px; padding: 5px 10px; }
+
+.phone-label {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: rgba(255,255,255,0.25);
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.phone-label strong { color: rgba(255,255,255,0.4); }
+
+/* Continue on mobile button */
+.mobile-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 4px 11px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.mobile-btn:hover { color: var(--accent); border-color: rgba(249,115,22,0.3); }
+
+/* ---- AIT Challenge widget ---- */
+.challenge-widget {
+  margin: 0 auto; max-width: 760px; width: 100%;
+  padding: 0 20px; flex-shrink: 0;
+}
+.challenge-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; margin-top: 12px;
+}
+.challenge-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; cursor: pointer; user-select: none;
+  transition: background 0.15s;
+}
+.challenge-header:hover { background: rgba(255,255,255,0.02); }
+.challenge-title { font-size: 13px; font-weight: 600; color: var(--text-bright); }
+.challenge-score {
+  margin-left: auto; font-size: 12px; color: var(--text-dim);
+  display: flex; align-items: center; gap: 6px;
+}
+.challenge-score .done { color: var(--green); }
+.challenge-chevron {
+  font-size: 10px; color: var(--text-dim); transition: transform 0.2s;
+}
+.challenge-card.open .challenge-chevron { transform: rotate(180deg); }
+.challenge-progress {
+  display: flex; gap: 3px; padding: 0 16px 10px; height: 6px;
+}
+.challenge-progress .seg {
+  flex: 1; height: 4px; border-radius: 2px;
+  background: var(--border); transition: background 0.4s;
+}
+.challenge-progress .seg.done { background: var(--green); }
+.challenge-progress .seg.active { background: var(--accent); animation: pulse 1.5s ease-in-out infinite; }
+.challenge-body {
+  max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out;
+}
+.challenge-card.open .challenge-body { max-height: 400px; }
+.challenge-list { padding: 4px 16px 14px; }
+.challenge-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-top: 1px solid rgba(30,42,60,0.4);
+  font-size: 13px;
+}
+.challenge-item:first-child { border-top: none; }
+.challenge-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex-shrink: 0; border: 1.5px solid var(--text-dim);
+  transition: all 0.3s;
+}
+.challenge-item.done .challenge-dot {
+  background: var(--green); border-color: var(--green);
+}
+.challenge-item.active .challenge-dot {
+  border-color: var(--accent); animation: pulse 1.5s ease-in-out infinite;
+}
+.challenge-item .ch-name { color: var(--text); flex: 1; }
+.challenge-item.done .ch-name { color: var(--text-dim); text-decoration: line-through; }
+.challenge-item .ch-status {
+  font-size: 11px; font-weight: 600; color: var(--text-dim);
+}
+.challenge-item.done .ch-status { color: var(--green); }
+.challenge-item.active .ch-status { color: var(--accent); }
+.phone-frame .challenge-widget { padding: 0 10px; }
+.phone-frame .challenge-card { margin-top: 8px; }
+.phone-frame .challenge-header { padding: 8px 12px; }
+.phone-frame .challenge-title { font-size: 12px; }
+.phone-frame .challenge-list { padding: 2px 12px 10px; }
+.phone-frame .challenge-item { font-size: 12px; padding: 5px 0; }
+
+/* Suggested question buttons */
+.suggestions {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 4px 0 8px; animation: msgIn 0.3s ease-out;
+}
+.suggest-btn {
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 20px; padding: 8px 14px;
+  font-size: 13px; color: #a5b4fc;
+  cursor: pointer; transition: all 0.15s;
+  font-family: inherit; white-space: nowrap;
+}
+.suggest-btn:hover {
+  background: rgba(99,102,241,0.15);
+  border-color: rgba(99,102,241,0.35);
+  color: #c4b5fd;
+}
+.phone-frame .suggest-btn { font-size: 11.5px; padding: 6px 11px; }
+
+/* Footer */
+.demo-footer {
+  padding: 16px 20px; border-top: 1px solid var(--border);
+  text-align: center; flex-shrink: 0;
+  background: var(--panel);
+}
+.demo-footer-title {
+  font-size: 15px; color: var(--text); font-weight: 600; margin-bottom: 6px;
+}
+.demo-footer-title a {
+  color: var(--accent); text-decoration: none; font-weight: 600;
+  transition: color 0.15s;
+}
+.demo-footer-title a:hover { color: #fb923c; }
+.demo-footer-links {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; font-size: 12px; color: var(--text-dim);
+}
+.demo-footer-links a {
+  color: var(--text-dim); text-decoration: none; font-weight: 500;
+  transition: color 0.15s;
+}
+.demo-footer-links a:hover { color: var(--accent); }
+.demo-footer-links .sep { color: var(--border); }
+.phone-frame .demo-footer { display: none; }
+</style>
+</head>
+<body>
+<!-- ============================================================
+  Ably AI Transport Demo — Two-Tab Architecture
+
+  This file runs in two modes:
+    CLIENT mode (default): The customer chat UI. Subscribes with rewind.
+    AGENT mode (?agent):   The simulated server. Publishes streamed tokens.
+
+  Demo flow:
+    1. Open ?agent in one tab (the persistent "server")
+    2. Open this page in another tab (the "client")
+    3. Chat → agent streams response tokens via Ably
+    4. Refresh the client tab mid-stream
+    5. Client reconnects with rewind and picks up exactly where it left off
+       — that's real Ably AI Transport resumable streaming!
+============================================================ -->
+
+<div id="app"></div>
+
+<script>
+const KEY = '74GMLQ.EAUWhQ:KsOte05eYk10UCBweQBwitSMO-mC-kAG9FH_9r2oxgc';
+const HIST = 5000;
+const PARAMS = new URLSearchParams(location.search);
+const IS_AGENT = PARAMS.has('agent');
+const IS_PHONE = PARAMS.has('phone');
+
+// Web Worker for accurate timers even in background tabs.
+// Browsers throttle setTimeout to ~1s in background tabs, which kills
+// the agent's streaming speed. Web Workers aren't throttled.
+const _timerWorker = new Worker(URL.createObjectURL(new Blob([
+  `self.onmessage=e=>setTimeout(()=>self.postMessage(''),e.data)`
+], { type: 'text/javascript' })));
+function delay(ms) {
+  return new Promise(r => { _timerWorker.onmessage = () => r(); _timerWorker.postMessage(ms); });
+}
+
+// Channel sharing: Agent always generates a fresh channel on load.
+// Client reads whatever the agent set. This ensures reloading the agent
+// clears stale history, while the client can still reconnect mid-session.
+let CH;
+if (IS_AGENT) {
+  CH = 'ai-demo-' + Math.random().toString(36).substr(2,8);
+  localStorage.setItem('ably-demo-ch', CH);
+} else {
+  CH = localStorage.getItem('ably-demo-ch');
+  if (!CH) { CH = 'ai-demo-' + Math.random().toString(36).substr(2,8); localStorage.setItem('ably-demo-ch', CH); }
+}
+
+// ---- Agent responses — all about Ably AI Transport ----
+const GREET = `Welcome to the Ably AI Transport demo! I'm here to show you what AIT can do.\n\nThis conversation is being streamed token-by-token through Ably's infrastructure. While we chat, try out the AIT Challenge above — you can interrupt me mid-response, refresh the page, or open this chat on a second device.\n\nWhat would you like to know about AI Transport?`;
+
+const R = {
+  what_is: `Ably AI Transport (AIT) is a drop-in infrastructure layer that sits between your AI agents and your users' devices.\n\nIt upgrades standard AI streams into bi-directional, stateful experiences. Instead of fragile server-sent events that break when connections drop, AIT delivers tokens through Ably's global edge network — so streams are resilient, resumable, and work across multiple devices simultaneously.\n\nThe key idea: decouple token delivery from connection state. Your agent publishes tokens to an Ably channel, and any number of clients can subscribe. If a client disconnects and reconnects, it picks up exactly where it left off. No lost tokens, no duplicate messages, no rebuilding state.\n\nIt works with any AI model or framework — OpenAI, Anthropic, Vercel AI SDK, LangChain, LangGraph, and more.`,
+
+  setup: `Getting started with AI Transport is straightforward.\n\nOn the server side, your AI agent publishes tokens to an Ably channel as they're generated. Each message includes a response ID in the extras headers so clients can track which response a token belongs to.\n\nOn the client side, you subscribe to that channel with rewind enabled. That's the magic — rewind lets new or reconnecting clients catch up on recent messages from channel history, so they never miss a token.\n\nHere's the basic pattern:\n\n1. Agent publishes: start, token (many), then end events\n2. Client subscribes with rewind to catch up on history\n3. Client renders tokens as they arrive\n4. On disconnect/reconnect, the client automatically resumes from where it left off\n\nCheck out the full quickstart at ably.com/docs/ai-transport — there are drop-in integrations for all the major AI frameworks.`,
+
+  resumable: `Resumable streaming is one of AIT's core features — and you're experiencing it right now!\n\nHere's how it works: every token I send is published as an individual Ably message on a channel. Ably persists these messages for a configurable period. When a client connects (or reconnects), it can request a rewind — basically saying "give me everything from the last 2 minutes."\n\nSo if you refresh this page mid-response:\n\n1. The browser reconnects to Ably\n2. The channel subscription includes rewind\n3. Ably replays all the tokens that were published while you were away\n4. New live tokens continue arriving seamlessly\n\nThe result? The conversation picks up exactly where it left off. No lost context, no broken responses. Try it now — hit Cmd+R while I'm still talking!`,
+
+  multidevice: `Multi-device continuity means you can start a conversation on one device and seamlessly continue it on another.\n\nBecause AIT streams tokens through Ably channels rather than direct connections, any client that subscribes to the same channel sees the same stream. Multiple clients can subscribe simultaneously — they all receive tokens in real time.\n\nIn this demo, try clicking "Continue on mobile" in the header. It opens a phone-sized window that connects to the same Ably channel. Both screens show the same conversation, and if I'm mid-response, the phone picks up the live stream instantly.\n\nThis is huge for real-world AI apps — think of a customer starting a support chat on their laptop, then switching to their phone on the go. With AIT, the transition is seamless. No re-authentication, no lost context, no starting over.`,
+
+  interruption: `Stream interruption handling is built right into AIT's design.\n\nIn traditional AI streaming, interrupting a response is messy — you might get orphaned tokens, broken state, or race conditions. With AIT, interruption is a first-class event.\n\nThe pattern works like this:\n\n1. The client sends an interrupt signal\n2. The agent stops generating and publishes an 'interrupted' event\n3. All connected clients see the clean cutoff\n4. The agent can then start a new response incorporating the user's new input\n\nYou can try it right now — just type a message while I'm still responding. I'll stop, acknowledge your interruption, and address your new question. That's graceful interruption handling in action.`,
+
+  benefits: `Here's what makes AI Transport different from building your own streaming infrastructure:\n\nReliability — Tokens are delivered through Ably's global edge network with guaranteed ordering and exactly-once delivery. No lost or duplicate tokens, ever.\n\nResumability — If a connection drops mid-response, clients reconnect and resume from exactly where they left off using channel rewind. Zero data loss.\n\nMulti-device — Multiple clients can subscribe to the same channel simultaneously. Start on desktop, continue on mobile — the stream follows you.\n\nFramework agnostic — Drop-in integrations for OpenAI, Anthropic, Vercel AI SDK, LangChain, LangGraph, ag-ui, and more. No architecture rewrite needed.\n\nScalability — Ably's infrastructure handles millions of concurrent connections. Your AI app scales without you building pub/sub infrastructure.\n\nBi-directional — It's not just one-way streaming. AIT supports user input, tool calls, chain-of-thought reasoning, citations, and human-in-the-loop workflows.`,
+
+  how_different: `Great question. Most AI apps today stream responses using Server-Sent Events (SSE) — a direct HTTP connection from server to client.\n\nSSE works fine for simple cases, but it breaks down fast:\n\nConnection drops → response is lost, user sees a broken message.\nPage refresh → stream is gone, no way to resume.\nMultiple devices → each needs its own connection to the AI, duplicating work.\nScaling → you're managing persistent HTTP connections yourself.\n\nAIT solves all of this by adding a pub/sub layer between your agent and your clients. The agent publishes tokens to an Ably channel. Clients subscribe. Ably handles delivery, persistence, resumption, and multi-device sync.\n\nThink of it like upgrading from a phone call (SSE — one connection, drops if you hang up) to a group chat (AIT — persistent, multi-device, scrollable history).`,
+
+  generic: [
+    `That's a great question! Let me connect it back to what AI Transport does.\n\nAIT is fundamentally about making AI conversations reliable and seamless. Whether you're building a chatbot, a coding assistant, a customer support agent, or any AI-powered experience — AIT handles the infrastructure so your tokens always arrive, your sessions persist, and your users can pick up conversations on any device.\n\nYou can learn more at ably.com/docs/ai-transport — or ask me about specific features like resumable streaming, multi-device sync, or interruption handling!`,
+    `Good question. Here's how AI Transport fits into the bigger picture.\n\nBuilding production AI apps is hard — not because of the models, but because of the plumbing. Connection management, state persistence, multi-device sync, graceful error handling... it's a lot of infrastructure work that has nothing to do with your actual product.\n\nAIT is that infrastructure, pre-built and battle-tested on Ably's global edge network. You plug it in, and your AI streams become resilient, resumable, and multi-device — without an architecture rewrite.\n\nWhat specific aspect would you like to dive deeper on?`
+  ]
+};
+
+function pick(text) {
+  const t = text.toLowerCase();
+  if (t.match(/what.*(?:is|ait|ai\s*transport)|tell.*about.*ait|explain.*ait|what.*does.*ait/)) return R.what_is;
+  if (t.match(/set\s*up|getting\s*started|how.*(?:start|begin|integrate|implement|use)|quickstart|install/)) return R.setup;
+  if (t.match(/resum|refresh|reconnect|rewind|persist|recover|drop|disconnect|offline/)) return R.resumable;
+  if (t.match(/multi.*device|phone|mobile|cross.*device|second.*device|switch.*device|tablet/)) return R.multidevice;
+  if (t.match(/interrupt|stop|cancel|abort|mid.*stream|cut.*off|break/)) return R.interruption;
+  if (t.match(/benefit|advantage|why|feature|what.*different|comparison|vs|better|value/)) return R.benefits;
+  if (t.match(/how.*different|sse|server.*sent|compared|traditional|alternative|without/)) return R.how_different;
+  return R.generic[Math.floor(Math.random() * R.generic.length)];
+}
+
+// ============================================================
+// AGENT MODE — the simulated server
+// ============================================================
+if (IS_AGENT) {
+
+document.title = 'Agent Server — AI Transport Demo';
+document.getElementById('app').innerHTML = `
+<header class="header">
+  <div class="agent-av server">✨</div>
+  <div>
+    <div class="header-title">Agent Server</div>
+    <div class="header-sub">Simulated backend — keeps running while client refreshes</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="pill">
+    <div class="conn-dot" id="dot"></div>
+    <span id="dotLabel">Connecting...</span>
+  </div>
+  <div class="mono-pill" id="chTag">${CH}</div>
+  <span class="link-btn" onclick="resetAll()">Reset</span>
+</header>
+<div class="agent-panel">
+  <div class="agent-hero">
+    <h2>Ably AI Transport — Agent Server</h2>
+    <p>This tab simulates a backend server. It stays running while you refresh the client tab, so the token stream continues uninterrupted — just like a real AI Transport deployment.</p>
+  </div>
+  <div class="agent-instructions">
+    <h3>How to demo</h3>
+    <ol>
+      <li>Keep this tab open — it's your persistent "server"</li>
+      <li>Open the <strong>client tab</strong>: <code><a href="${location.pathname}" target="_blank" style="color:var(--accent)">${location.pathname}</a></code> (no <code>?agent</code>)</li>
+      <li>Send a message in the client → watch the agent stream a response</li>
+      <li><strong>Refresh the client tab mid-stream</strong> (Cmd+R / F5)</li>
+      <li>The client reconnects with <code>rewind: '2m'</code> and picks up exactly where it left off — that's <strong>resumable streaming</strong></li>
+      <li>Click <strong>"📱 Continue on mobile"</strong> in the client header mid-stream</li>
+      <li>A phone-sized window opens and picks up the same conversation live — that's <strong>multi-device continuity</strong></li>
+    </ol>
+  </div>
+  <div id="statusBar" class="status-bar">
+    <div class="dot"></div>
+    <span id="statusText">Waiting for client messages...</span>
+    <div class="spacer"></div>
+    <span style="font-size:11px;color:var(--text-dim)" id="tokenCount"></span>
+  </div>
+  <div class="log-section">
+    <h3>Event log</h3>
+    <div class="log-entries" id="logEntries">
+      <div class="log-entry"><span class="ts">${new Date().toLocaleTimeString()}</span> <span class="ev start">ready</span> <span class="data">Agent connected to channel ${CH}</span></div>
+    </div>
+  </div>
+</div>`;
+
+const ably = new Ably.Realtime({ key: KEY, clientId: 'agent', echoMessages: false });
+const ch = ably.channels.get(CH);
+
+const setDot = (cls, txt) => {
+  document.getElementById('dot').className = 'conn-dot ' + cls;
+  document.getElementById('dotLabel').textContent = txt;
+};
+ably.connection.on('connected',    () => setDot('ok', 'Connected'));
+ably.connection.on('connecting',   () => setDot('', 'Connecting...'));
+ably.connection.on('disconnected', () => setDot('err', 'Disconnected'));
+
+function log(ev, cls, data) {
+  const el = document.getElementById('logEntries');
+  const d = document.createElement('div');
+  d.className = 'log-entry';
+  d.innerHTML = `<span class="ts">${new Date().toLocaleTimeString()}</span> <span class="ev ${cls}">${ev}</span> <span class="data">${data}</span>`;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+
+let streaming = false, stopped = false, streamStart = 0;
+let pendingInterrupt = null; // stores user message that interrupted the stream
+
+// Safety valve: auto-reset streaming if stuck for >20s
+setInterval(() => {
+  if (streaming && Date.now() - streamStart > 20000) {
+    log('safety', 'int', 'Auto-reset: streaming was stuck for 20s');
+    streaming = false; stopped = false;
+    document.getElementById('statusBar').className = 'status-bar';
+    document.getElementById('statusText').textContent = 'Waiting for client messages...';
+    document.getElementById('tokenCount').textContent = '';
+  }
+}, 2000);
+
+// Contextual interruption responses — agent acknowledges the interruption
+function interruptResponse(userMsg) {
+  const resp = pick(userMsg);
+  return `Hey, you just triggered one of AI Transport's key features — stream interruption! 🎯\n\nWhat you just saw is AIT cleanly cutting off my response mid-stream and seamlessly picking back up with new context. No broken state, no orphaned connections, no glitchy half-responses. This is really hard to do with raw SSE or WebSockets — but with AIT, it's built in.\n\nAnyway, to answer your question:\n\n${resp}`;
+}
+
+// Listen for user messages and stream responses
+ch.subscribe('user-message', async (m) => {
+  try {
+    if (streaming) {
+      // User sent a message mid-stream — contextual interruption!
+      log('interrupt-msg', 'int', 'User interrupted with: ' + m.data);
+      pendingInterrupt = m.data;
+      stopped = true;
+      return;
+    }
+    log('user-message', '', m.data);
+    const resp = pick(m.data);
+    document.getElementById('statusBar').className = 'status-bar streaming';
+    document.getElementById('statusText').textContent = 'Streaming response...';
+    ch.publish({ name: 'typing', data: '1' }).catch(() => {});
+    await delay(400 + Math.random() * 600);
+    await stream(resp);
+  } catch (err) {
+    log('error', 'int', 'Handler error: ' + err.message);
+    console.error('user-message handler error:', err);
+    streaming = false;
+  }
+});
+
+ch.subscribe('interrupt', () => {
+  if (streaming) { stopped = true; log('interrupt', 'int', 'Client requested stop'); }
+});
+
+async function stream(text) {
+  if (streaming) { log('skip', '', 'stream() called but already streaming'); return; }
+  streaming = true; stopped = false; streamStart = Date.now();
+  const id = 'r' + Date.now() + Math.random().toString(36).substr(2,4);
+
+  try {
+    await ch.publish({ name: 'start', data: '1', extras: { headers: { responseId: id } } });
+    log('start', 'start', `responseId: ${id}`);
+
+    // Split into small word chunks (1-2 words) — mimics real LLM token size
+    const words = text.split(/(?<=\s)/);
+    const chunks = [];
+    let wi = 0;
+    while (wi < words.length) {
+      const n = 1 + Math.floor(Math.random() * 2); // 1-2 words per token
+      chunks.push(words.slice(wi, wi + n).join('')); wi += n;
+    }
+
+    let tc = 0;
+    for (const c of chunks) {
+      if (stopped) break;
+      ch.publish({ name: 'token', data: c, extras: { headers: { responseId: id } } });
+      tc++;
+      if (tc % 3 === 0) document.getElementById('tokenCount').textContent = tc + ' tokens';
+      const trimmed = c.trim();
+      const last = trimmed[trimmed.length - 1] || '';
+      const d = '.!?'.includes(last) ? 600 + Math.random() * 400
+              : '\n'.includes(last)  ? 400 + Math.random() * 200
+              : ',;:'.includes(last) ? 250 + Math.random() * 100
+              : 80 + Math.random() * 80;
+      await delay(d);
+    }
+    document.getElementById('tokenCount').textContent = tc + ' tokens';
+
+    const evName = stopped ? 'interrupted' : 'end';
+    await ch.publish({ name: evName, data: '1', extras: { headers: { responseId: id } } });
+    log(evName, stopped ? 'int' : 'end', `${tc} tokens streamed`);
+  } catch (err) {
+    log('error', 'int', 'Stream error: ' + err.message);
+    console.error('Stream error:', err);
+  } finally {
+    document.getElementById('statusBar').className = 'status-bar';
+    document.getElementById('statusText').textContent = 'Waiting for client messages...';
+    document.getElementById('tokenCount').textContent = '';
+    stopped = false; streaming = false;
+  }
+
+  // If user sent a message mid-stream, respond to it now
+  if (pendingInterrupt) {
+    const msg = pendingInterrupt;
+    pendingInterrupt = null;
+    log('follow-up', 'start', 'Responding to interrupt: ' + msg);
+    document.getElementById('statusBar').className = 'status-bar streaming';
+    document.getElementById('statusText').textContent = 'Streaming follow-up...';
+    ch.publish({ name: 'typing', data: '1' }).catch(() => {});
+    await delay(600 + Math.random() * 400);
+    await stream(interruptResponse(msg));
+  }
+}
+
+// Send greeting when client first connects (signalled by 'client-ready')
+ch.subscribe('client-ready', async () => {
+  try {
+    log('client-ready', 'start', 'New client connected, sending greeting');
+    ch.publish({ name: 'typing', data: '1' }).catch(() => {});
+    await delay(1200 + Math.random() * 600);
+    await stream(GREET);
+  } catch (err) {
+    log('error', 'int', 'Greeting error: ' + err.message);
+    streaming = false;
+  }
+});
+
+// Also send greeting if agent tab is opened after client already loaded
+// (agent subscribes to presence or just waits for user-message)
+
+function resetAll() {
+  localStorage.removeItem('ably-demo-ch');
+  ably.close();
+  location.reload();
+}
+
+// ============================================================
+// CLIENT MODE — the customer chat UI
+// ============================================================
+} else {
+
+document.title = 'AI Transport Demo';
+
+// Track whether this client has already sent a ready signal for this channel
+const readySent = !!sessionStorage.getItem('ready-' + CH);
+const resumed = readySent; // if we already sent ready, this is a resume
+
+document.getElementById('app').innerHTML = `
+<header class="header">
+  <div class="agent-av client">✨</div>
+  <div>
+    <div class="header-title">AI Transport Demo</div>
+    <div class="header-sub">Powered by Ably</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="pill">
+    <div class="conn-dot" id="dot"></div>
+    <span id="dotLabel">Connecting...</span>
+  </div>
+  <div class="mono-pill">${CH}</div>
+  ${!IS_PHONE ? '<button class="mobile-btn" onclick="openPhone()">📱 Continue on mobile</button>' : ''}
+  <span class="link-btn" onclick="resetClient()">Reset</span>
+</header>
+<div class="resume-banner" id="banner">
+  <span>↩</span>
+  <strong>Session resumed</strong> — conversation replayed from Ably channel history
+  <span class="banner-tag">rewind: '2m'</span>
+  <span class="banner-right">Ably AI Transport: Resumable Streaming</span>
+</div>
+<div class="challenge-widget">
+  <div class="challenge-card open" id="challengeCard" onclick="toggleChallenge()">
+    <div class="challenge-header">
+      <span class="challenge-title">AIT Challenge</span>
+      <span class="challenge-score"><span id="chScore">0</span>/4 <span class="challenge-chevron">▼</span></span>
+    </div>
+    <div class="challenge-progress" id="chProgress">
+      <div class="seg" id="seg-0"></div>
+      <div class="seg" id="seg-1"></div>
+      <div class="seg" id="seg-2"></div>
+      <div class="seg" id="seg-3"></div>
+    </div>
+    <div class="challenge-body">
+      <div class="challenge-list" id="chList">
+        <div class="challenge-item" id="ch-interrupt"><div class="challenge-dot"></div><span class="ch-name">Interrupt the Agent</span><span class="ch-status"></span></div>
+        <div class="challenge-item" id="ch-refresh"><div class="challenge-dot"></div><span class="ch-name">Refresh Mid-Stream</span><span class="ch-status"></span></div>
+        <div class="challenge-item" id="ch-mobile"><div class="challenge-dot"></div><span class="ch-name">Continue on Mobile</span><span class="ch-status"></span></div>
+        <div class="challenge-item" id="ch-multidevice"><div class="challenge-dot"></div><span class="ch-name">Chat from Both Devices</span><span class="ch-status"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="messages" id="msgs"></div>
+<div class="stream-bar" id="sbar">
+  <div class="s-pulse"></div>
+  <span>Streaming via Ably</span>
+  <span class="s-val" id="sTok">0 tokens</span>
+  <span id="sLat" style="color:var(--text-dim)">—</span>
+  <span class="s-right">Ably AI Transport</span>
+</div>
+<div class="input-bar">
+  <button class="stop-btn" id="stopBtn" onclick="interrupt()"><span>■</span> Stop</button>
+  <input class="inp" id="inp" placeholder="Ask about AI Transport..."
+    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}">
+  <button class="send-btn" id="sendBtn" onclick="send()">Send</button>
+</div>
+<div class="demo-footer">
+  <div class="demo-footer-title">Powered by <a href="https://ably.com/docs/ai-transport" target="_blank">Ably AI Transport</a></div>
+  <div class="demo-footer-links">
+    <a href="https://ably.com/docs/ai-transport" target="_blank">Docs</a>
+    <span class="sep">·</span>
+    <a href="https://ably.com/docs/ai-transport/token-streaming" target="_blank">Token Streaming</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/ably/ably-js" target="_blank">GitHub</a>
+  </div>
+</div>`;
+
+// Phone mode: wrap app in a phone frame
+if (IS_PHONE) {
+  document.body.classList.add('phone-mode');
+  document.title = 'AI Transport Demo — Mobile';
+  const app = document.getElementById('app');
+  const frame = document.createElement('div');
+  frame.className = 'phone-frame';
+  app.parentNode.insertBefore(frame, app);
+  frame.appendChild(app);
+  // Label below phone
+  const label = document.createElement('div');
+  label.className = 'phone-label';
+  label.innerHTML = 'Second device connected via <strong>Ably AI Transport</strong>';
+  document.body.appendChild(label);
+}
+
+if (resumed || IS_PHONE) document.getElementById('banner').classList.add('visible');
+
+const ably = new Ably.Realtime({ key: KEY, clientId: IS_PHONE ? 'mobile' : 'customer' });
+const ch = ably.channels.get(CH, { params: { rewind: '2m' } });
+
+const setDot = (cls, txt) => {
+  document.getElementById('dot').className = 'conn-dot ' + cls;
+  document.getElementById('dotLabel').textContent = txt;
+};
+ably.connection.on('connected',    () => setDot('ok', 'Connected'));
+ably.connection.on('connecting',   () => setDot('', 'Connecting...'));
+ably.connection.on('disconnected', () => setDot('err', 'Disconnected'));
+ably.connection.on('failed',      () => setDot('err', 'Failed'));
+
+// ---- UI ----
+const area = document.getElementById('msgs');
+const scroll = () => { area.scrollTop = area.scrollHeight; };
+let streaming = false;
+let suggestionsShown = false;
+
+function aiMsg(id) {
+  const d = document.createElement('div');
+  d.className = 'msg'; d.id = 'row-' + id;
+  d.innerHTML = `<div class="msg-av ai">✨</div>
+    <div class="msg-body"><div class="msg-name">AI Transport</div>
+    <div class="bubble streaming" id="b-${id}"></div></div>`;
+  area.appendChild(d); scroll();
+  return document.getElementById('b-' + id);
+}
+
+const SUGGESTIONS = [
+  'What is AI Transport?',
+  'How do I get set up?',
+  'What are the benefits?',
+  'How is it different from SSE?',
+];
+
+function showSuggestions() {
+  // Don't show if already shown or if there are already suggestions
+  if (document.querySelector('.suggestions')) return;
+  const d = document.createElement('div');
+  d.className = 'suggestions';
+  SUGGESTIONS.forEach(q => {
+    const btn = document.createElement('button');
+    btn.className = 'suggest-btn';
+    btn.textContent = q;
+    btn.onclick = () => {
+      d.remove(); // remove suggestions
+      document.getElementById('inp').value = q;
+      send();
+    };
+    d.appendChild(btn);
+  });
+  area.appendChild(d); scroll();
+}
+
+function youMsg(text) {
+  const d = document.createElement('div');
+  d.className = 'msg you';
+  d.innerHTML = `<div class="msg-av you">👤</div>
+    <div class="msg-body"><div class="msg-name">You</div>
+    <div class="bubble">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div></div>`;
+  area.appendChild(d); scroll();
+}
+
+function showTyping() { hideTyping();
+  const d = document.createElement('div');
+  d.className = 'typing'; d.id = 'typing';
+  d.innerHTML = `<div class="msg-av ai">✨</div>
+    <div class="msg-body"><div class="msg-name">AI Transport</div>
+    <div class="typing-dots"><div class="tdot"></div><div class="tdot"></div><div class="tdot"></div></div></div>`;
+  area.appendChild(d); scroll();
+}
+function hideTyping() { const e = document.getElementById('typing'); if (e) e.remove(); }
+
+function callout(type, icon, text) {
+  const d = document.createElement('div');
+  d.className = 'callout ' + type;
+  d.innerHTML = `<span>${icon}</span><span style="font-weight:600">${text}</span>`;
+  area.appendChild(d); scroll();
+}
+
+let tokC = 0, lats = [];
+function sbarOn() {
+  document.getElementById('sbar').classList.add('on');
+  setDot('stream', 'Streaming...');
+  tokC = 0; lats = [];
+  document.getElementById('sTok').textContent = '0 tokens';
+  document.getElementById('sLat').textContent = '—';
+}
+function sbarOff() {
+  document.getElementById('sbar').classList.remove('on');
+  setDot('ok', 'Connected');
+}
+function tick(ts) {
+  tokC++;
+  document.getElementById('sTok').textContent = tokC + ' tokens';
+  if (ts) { const l = Date.now() - ts;
+    if (l > 0 && l < 2000) { lats.push(l); if (lats.length > 30) lats.shift();
+      document.getElementById('sLat').textContent = Math.round(lats.reduce((a,b)=>a+b,0)/lats.length) + 'ms avg';
+    }
+  }
+}
+function setInp(on) {
+  // Input always stays enabled so user can interrupt by typing
+  document.getElementById('inp').disabled = false;
+  document.getElementById('sendBtn').disabled = false;
+  on ? document.getElementById('stopBtn').classList.remove('on') : document.getElementById('stopBtn').classList.add('on');
+}
+
+// ---- Smooth character animation engine ----
+// Tokens arrive in big chunks over Ably (~31ms latency each).
+// We buffer them and drip characters out at a steady pace so it
+// looks smooth, like typing, instead of arriving in bursts.
+function createAnimator(el, onChar) {
+  const queue = [];       // buffered characters waiting to render
+  let rendered = '';       // what's been shown so far
+  let raf = null;
+  let frameCount = 0;
+
+  // Adaptive rate: fast when buffer is full, slows down as it empties.
+  // This bridges the gap between Ably chunk arrivals so there's no
+  // visible stutter — the animation decelerates smoothly instead of stopping.
+  function pump() {
+    if (!queue.length) { raf = null; return; }
+    frameCount++;
+    // Decelerate as queue drains: skip more frames when buffer is low
+    const skip = queue.length > 20 ? 1    // plenty buffered: every frame
+               : queue.length > 10 ? 2    // moderate: every 2nd frame
+               : queue.length > 4  ? 3    // getting low: every 3rd frame
+               : 5;                        // almost empty: stretch hard
+    if (frameCount % skip === 0) {
+      // Render 1-3 chars depending on buffer depth
+      const n = queue.length > 30 ? 3 : queue.length > 15 ? 2 : 1;
+      for (let i = 0; i < n && queue.length; i++) rendered += queue.shift();
+      el.textContent = rendered;
+      if (onChar) onChar();
+    }
+    raf = requestAnimationFrame(pump);
+  }
+
+  return {
+    push(text) {
+      for (const c of text) queue.push(c);
+      if (!raf) { frameCount = 0; raf = requestAnimationFrame(pump); }
+    },
+    flush() { if (queue.length) { rendered += queue.join(''); queue.length = 0; el.textContent = rendered; } if (raf) { cancelAnimationFrame(raf); raf = null; } },
+    getText() { return rendered + queue.join(''); },
+    pending() { return queue.length; }
+  };
+}
+
+// ---- Subscribe ----
+const prog = new Map();
+const local = new Set();
+
+ch.subscribe((m) => {
+  const rid = m.extras?.headers?.responseId;
+  const old = (Date.now() - m.timestamp) > HIST;
+
+  switch (m.name) {
+    case 'start':
+      if (!old) { hideTyping(); sbarOn(); setInp(false); streaming = true; }
+      if (!prog.has(rid)) {
+        const el = aiMsg(rid);
+        const anim = old ? null : createAnimator(el, () => scroll());
+        prog.set(rid, { el, anim, t: '' });
+      }
+      break;
+
+    case 'token': {
+      const r = prog.get(rid);
+      if (r) {
+        r.t += m.data;
+        if (old) {
+          // Historical: render instantly
+          r.el.textContent = r.t;
+        } else {
+          // Live: create animator on the fly if it doesn't exist yet
+          // (happens when start was historical but tokens are now live — i.e. resume)
+          if (!r.anim) {
+            r.anim = createAnimator(r.el, () => scroll());
+            sbarOn(); setInp(false); streaming = true;
+          }
+          r.anim.push(m.data);
+          tick(m.timestamp);
+        }
+      }
+      break;
+    }
+
+    case 'end': {
+      const r = prog.get(rid);
+      if (r) {
+        if (r.anim) r.anim.flush();
+        r.el.textContent = r.t;
+        r.el.classList.remove('streaming');
+        prog.delete(rid);
+      }
+      if (!old) { sbarOff(); setInp(true); streaming = false; }
+      // Show suggested questions only after the first live response, and only if
+      // no user messages exist yet (i.e. conversation hasn't progressed)
+      if (!old && !suggestionsShown && !area.querySelector('.msg.you')) {
+        suggestionsShown = true;
+        setTimeout(showSuggestions, 300);
+      }
+      break;
+    }
+
+    case 'interrupted': {
+      const r = prog.get(rid);
+      if (r) {
+        if (r.anim) r.anim.flush();
+        r.el.textContent = r.t;
+        r.el.classList.remove('streaming'); r.el.classList.add('interrupted');
+        const l = document.createElement('div'); l.className = 'int-label'; l.textContent = '■ Stopped';
+        r.el.parentElement.appendChild(l); prog.delete(rid);
+      }
+      if (!old) { sbarOff(); setInp(true); streaming = false;
+        callout('stop', '■', 'Response interrupted — you can send a new message');
+      }
+      break;
+    }
+
+    case 'user-message':
+      if (!local.has(m.id)) youMsg(m.data);
+      break;
+
+    case 'typing':
+      if ((Date.now() - m.timestamp) <= HIST) showTyping();
+      break;
+  }
+});
+
+// Resume callout
+if (resumed) {
+  let t = null;
+  const h = () => { clearTimeout(t);
+    t = setTimeout(() => { ch.unsubscribe(h);
+      if (area.childElementCount > 0)
+        callout('resume', '↩', 'Conversation restored from Ably channel history');
+    }, 900);
+  };
+  ch.subscribe(h);
+}
+
+// ---- User actions ----
+window.send = async function() {
+  const inp = document.getElementById('inp');
+  const t = inp.value.trim(); if (!t) return;
+  inp.value = '';
+  // Remove suggestion buttons if present
+  const sug = document.querySelector('.suggestions');
+  if (sug) sug.remove();
+
+  // If streaming, auto-interrupt first — this is a contextual interruption!
+  if (streaming) {
+    ch.publish({ name: 'interrupt', data: 'stop' }).catch(() => {});
+    completeChallenge('interrupt');
+  }
+
+  youMsg(t);
+  const id = 'u' + Date.now(); local.add(id);
+  try {
+    await ch.publish({ name: 'user-message', data: t, id });
+    showTyping();
+  } catch (err) {
+    console.error('Failed to send message:', err);
+  }
+};
+
+window.interrupt = function() {
+  if (!streaming) return;
+  ch.publish({ name: 'interrupt', data: 'stop' });
+  completeChallenge('interrupt');
+  const b = document.getElementById('stopBtn');
+  b.textContent = 'Stopping...'; b.disabled = true;
+  setTimeout(() => { b.innerHTML = '<span>■</span> Stop'; b.disabled = false; }, 1200);
+};
+
+window.resetClient = function() {
+  sessionStorage.clear();
+  localStorage.removeItem('ably-demo-ch');
+  ably.close();
+  location.reload();
+};
+
+window.openPhone = function() {
+  const url = location.pathname + '?phone';
+  window.open(url, 'ably-phone', 'width=410,height=820,left=100,top=50');
+  completeChallenge('mobile');
+};
+
+// ---- AIT Challenge tracking ----
+const CHALLENGES = ['interrupt', 'refresh', 'mobile', 'multidevice'];
+const chState = JSON.parse(localStorage.getItem('ait-challenges-' + CH) || '{}');
+
+function completeChallenge(id, fromSync) {
+  if (chState[id]) return; // already done
+  chState[id] = true;
+  localStorage.setItem('ait-challenges-' + CH, JSON.stringify(chState));
+  renderChallenges();
+  // Broadcast to other devices so their checklist updates too
+  if (!fromSync) {
+    ch.publish({ name: 'challenge-done', data: id }).catch(() => {});
+  }
+}
+
+function renderChallenges() {
+  const doneCount = CHALLENGES.filter(c => chState[c]).length;
+  document.getElementById('chScore').textContent = doneCount;
+  // Progress segments fill left-to-right based on count, not which specific challenge
+  for (let i = 0; i < CHALLENGES.length; i++) {
+    document.getElementById('seg-' + i).className = i < doneCount ? 'seg done' : 'seg';
+  }
+  // Individual items show their own status
+  CHALLENGES.forEach((c) => {
+    const el = document.getElementById('ch-' + c);
+    if (chState[c]) {
+      el.className = 'challenge-item done';
+      el.querySelector('.ch-status').textContent = 'Done!';
+    }
+  });
+  if (doneCount === 4) {
+    document.querySelector('.challenge-title').textContent = 'AIT Challenge — Complete!';
+  }
+}
+
+window.toggleChallenge = function() {
+  document.getElementById('challengeCard').classList.toggle('open');
+};
+
+// Render initial state
+renderChallenges();
+
+// Detect: Refresh Mid-Stream — only on desktop when the page was actually refreshed (not phone)
+if (resumed && !IS_PHONE) {
+  const detectResume = (m) => {
+    if (m.name === 'token' && (Date.now() - m.timestamp) <= HIST) {
+      completeChallenge('refresh');
+      ch.unsubscribe(detectResume);
+    }
+  };
+  ch.subscribe(detectResume);
+  setTimeout(() => { ch.unsubscribe(detectResume); }, 5000);
+}
+
+// Detect: Continue on Mobile — phone client connecting completes this on desktop
+if (IS_PHONE) {
+  // The phone existing means the user clicked "Continue on mobile"
+  completeChallenge('mobile');
+  // Notify the desktop via a channel message
+  ch.publish({ name: 'phone-connected', data: '1' }).catch(() => {});
+}
+ch.subscribe('phone-connected', () => { completeChallenge('mobile'); });
+
+// Detect: Chat from Both Devices — phone sends a message
+ch.subscribe((m) => {
+  if (m.name === 'user-message' && !local.has(m.id) && (Date.now() - m.timestamp) <= HIST) {
+    // A user-message we didn't send = from another device
+    if (IS_PHONE || chState['mobile']) {
+      completeChallenge('multidevice');
+    }
+  }
+});
+// If we're the phone and we send a message, complete it
+if (IS_PHONE) {
+  const origSend = window.send;
+  window.send = async function() {
+    await origSend();
+    completeChallenge('multidevice');
+    // Notify desktop
+    ch.publish({ name: 'multidevice-done', data: '1' }).catch(() => {});
+  };
+}
+ch.subscribe('multidevice-done', () => { completeChallenge('multidevice'); });
+
+// Sync challenges between devices
+ch.subscribe('challenge-done', (m) => {
+  if ((Date.now() - m.timestamp) <= HIST) {
+    completeChallenge(m.data, true);
+  }
+});
+
+// Tell the agent tab we're ready (only on first load, not resume)
+async function init() {
+  await new Promise(r => {
+    if (ably.connection.state === 'connected') return r();
+    ably.connection.once('connected', r);
+  });
+  if (!readySent && !IS_PHONE) {
+    sessionStorage.setItem('ready-' + CH, '1');
+    await new Promise(r => setTimeout(r, 500));
+    ch.publish({ name: 'client-ready', data: '1' });
+  }
+}
+init();
+
+} // end client mode
+</script>
+</body>
+</html>

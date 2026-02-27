@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Seat Booking — Powered by Ably LiveObjects</title>
+  <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+  <script src="https://cdn.ably.com/lib/liveobjects.umd.min-2.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      text-align: center;
+      padding: 28px 20px 12px;
+      width: 100%;
+      background: linear-gradient(180deg, #12122a 0%, #0a0a1a 100%);
+    }
+
+    header h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+
+    header p {
+      font-size: 0.85rem;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    /* Connection & stats bar */
+    .stats-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 14px 20px;
+      margin: 8px 0 4px;
+      flex-wrap: wrap;
+    }
+
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      color: #aaa;
+    }
+
+    .stat .value {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #555;
+      flex-shrink: 0;
+    }
+
+    .stat .dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+    .stat .dot.connecting { background: #eab308; animation: pulse 1s infinite; }
+    .stat .dot.failed { background: #ef4444; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* Stage */
+    .stage-wrapper {
+      width: 100%;
+      max-width: 640px;
+      padding: 0 20px;
+      margin-top: 8px;
+    }
+
+    .stage {
+      background: linear-gradient(180deg, #ff6b3520, transparent);
+      border: 2px solid #ff6b3540;
+      border-radius: 60px 60px 0 0;
+      text-align: center;
+      padding: 12px 0 8px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: #ff6b35;
+    }
+
+    /* Seat grid */
+    .venue {
+      width: 100%;
+      max-width: 640px;
+      padding: 20px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 6px;
+      gap: 4px;
+    }
+
+    .row-label {
+      width: 22px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #555;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .seats {
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+    }
+
+    .seat {
+      width: 30px;
+      height: 30px;
+      border-radius: 6px 6px 3px 3px;
+      border: 2px solid #333;
+      background: #1a1a2e;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.55rem;
+      color: #444;
+    }
+
+    .seat:hover:not(.booked):not(.mine) {
+      border-color: #22c55e;
+      background: #22c55e18;
+      transform: scale(1.1);
+      z-index: 1;
+    }
+
+    .seat.booked {
+      background: #ef4444;
+      border-color: #ef444488;
+      cursor: not-allowed;
+      color: #ef444400;
+    }
+
+    .seat.mine {
+      background: #22c55e;
+      border-color: #22c55e88;
+      cursor: pointer;
+      color: #22c55e00;
+    }
+
+    .seat.mine:hover {
+      background: #16a34a;
+      border-color: #22c55eaa;
+      transform: scale(1.1);
+      z-index: 1;
+    }
+
+    .seat.aisle {
+      width: 14px;
+      border: none;
+      background: none;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    .seat.booked-flash {
+      animation: bookFlash 0.4s ease;
+    }
+
+    @keyframes bookFlash {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.25); }
+      100% { transform: scale(1); }
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      padding: 16px 20px 8px;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: #888;
+    }
+
+    .legend-swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px 4px 2px 2px;
+      border: 2px solid #333;
+      background: #1a1a2e;
+    }
+
+    .legend-swatch.booked { background: #ef4444; border-color: #ef444488; }
+    .legend-swatch.mine { background: #22c55e; border-color: #22c55e88; }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 20px;
+      margin-top: auto;
+    }
+    .footer-title {
+      font-size: 0.95rem;
+      color: #aaa;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .footer-title a { color: #ff6b35; text-decoration: none; font-weight: 600; }
+    .footer-title a:hover { color: #ff8c5a; }
+    .footer-links {
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px; font-size: 0.7rem; color: #444;
+    }
+    .footer-links a { color: #666; text-decoration: none; }
+    .footer-links a:hover { color: #ff6b35; }
+    .footer-links .sep { color: #333; }
+
+    /* Overlay */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: #0a0a1aee;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.3s;
+    }
+
+    #overlay.hidden { opacity: 0; pointer-events: none; }
+
+    .overlay-content {
+      text-align: center;
+      padding: 24px;
+    }
+
+    .overlay-content .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #333;
+      border-top-color: #ff6b35;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .overlay-content p {
+      font-size: 0.9rem;
+      color: #888;
+    }
+
+    /* Activity log */
+    .activity-log {
+      width: 100%;
+      max-width: 640px;
+      padding: 0 20px 12px;
+    }
+
+    .activity-log h3 {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #555;
+      margin-bottom: 6px;
+    }
+
+    .log-entries {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+
+    .log-entry {
+      font-size: 0.72rem;
+      color: #666;
+      padding: 3px 8px;
+      background: #ffffff06;
+      border-radius: 4px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .log-entry .time { color: #444; margin-right: 6px; }
+    .log-entry .seat-id { color: #ff6b35; font-weight: 600; }
+    .log-entry.book { color: #ef4444aa; }
+    .log-entry.unbook { color: #22c55eaa; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Multi-window hint */
+    .hint {
+      text-align: center;
+      font-size: 0.75rem;
+      color: #555;
+      padding: 4px 16px 0;
+      max-width: 480px;
+    }
+
+    .hint strong { color: #ff6b35; font-weight: 600; }
+
+    .clear-btn {
+      display: inline-block;
+      margin: 10px auto 0;
+      padding: 6px 16px;
+      background: transparent;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #666;
+      font-size: 0.7rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .clear-btn:hover { border-color: #ef4444; color: #ef4444; }
+  </style>
+</head>
+<body>
+
+  <div id="overlay">
+    <div class="overlay-content">
+      <div class="spinner"></div>
+      <p>Connecting to Ably...</p>
+    </div>
+  </div>
+
+  <header>
+    <h1>The Realtime Theatre</h1>
+    <p>Live seat booking powered by Ably LiveObjects</p>
+  </header>
+
+  <div class="stats-bar">
+    <div class="stat">
+      <span class="dot" id="connDot"></span>
+      <span id="connStatus">Connecting...</span>
+    </div>
+    <div class="stat">
+      Booked: <span class="value" id="bookedCount">0</span> / <span id="totalSeats">0</span>
+    </div>
+    <div class="stat">
+      Available: <span class="value" id="availCount">0</span>
+    </div>
+    <div class="stat">
+      Your seats: <span class="value" id="myCount">0</span>
+    </div>
+    <div class="stat">
+      Users online: <span class="value" id="userCount">1</span>
+    </div>
+  </div>
+
+  <p class="hint">
+    <strong>Open this page in multiple tabs or windows</strong> to see bookings sync in real time.
+    <br><button class="clear-btn" id="clearBtn" onclick="clearAllSeats()">Clear all seats</button>
+  </p>
+
+  <div class="stage-wrapper">
+    <div class="stage">Stage</div>
+  </div>
+
+  <div class="venue" id="venue"></div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch"></div>Available</div>
+    <div class="legend-item"><div class="legend-swatch mine"></div>Your booking</div>
+    <div class="legend-item"><div class="legend-swatch booked"></div>Taken</div>
+  </div>
+
+  <div class="activity-log">
+    <h3>Live activity</h3>
+    <div class="log-entries" id="logEntries"></div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-title">Built with <a href="https://ably.com/docs/liveobjects" target="_blank">Ably LiveObjects</a></div>
+    <div class="footer-links">
+      <a href="https://ably.com/docs/liveobjects" target="_blank">Docs</a>
+      <span class="sep">·</span>
+      <a href="https://ably.com/docs/liveobjects/quickstart" target="_blank">Quickstart</a>
+      <span class="sep">·</span>
+      <a href="https://github.com/ably/ably-js" target="_blank">GitHub</a>
+    </div>
+  </div>
+
+<script>
+(async function () {
+  // ─── Config ───────────────────────────────────────────────
+  const API_KEY = '74GMLQ.EAUWhQ:KsOte05eYk10UCBweQBwitSMO-mC-kAG9FH_9r2oxgc';
+  const CHANNEL_NAME = 'seat-booking-demo';
+
+  // Generate a unique client ID for this browser tab
+  const CLIENT_ID = 'user-' + Math.random().toString(36).slice(2, 8);
+
+  // Venue layout: each row has a name + seat config
+  // 'x' = aisle gap, number = seat
+  const ROWS = [
+    { label: 'A', seats: [1,2,3,4, 'x', 5,6,7,8,9,10, 'x', 11,12,13,14] },
+    { label: 'B', seats: [1,2,3,4, 'x', 5,6,7,8,9,10, 'x', 11,12,13,14] },
+    { label: 'C', seats: [1,2,3,4,5, 'x', 6,7,8,9,10,11, 'x', 12,13,14,15,16] },
+    { label: 'D', seats: [1,2,3,4,5, 'x', 6,7,8,9,10,11, 'x', 12,13,14,15,16] },
+    { label: 'E', seats: [1,2,3,4,5, 'x', 6,7,8,9,10,11, 'x', 12,13,14,15,16] },
+    { label: 'F', seats: [1,2,3,4,5,6, 'x', 7,8,9,10,11,12, 'x', 13,14,15,16,17,18] },
+    { label: 'G', seats: [1,2,3,4,5,6, 'x', 7,8,9,10,11,12, 'x', 13,14,15,16,17,18] },
+    { label: 'H', seats: [1,2,3,4,5,6, 'x', 7,8,9,10,11,12, 'x', 13,14,15,16,17,18] },
+    { label: 'J', seats: [1,2,3,4,5,6,7, 'x', 8,9,10,11,12,13, 'x', 14,15,16,17,18,19,20] },
+    { label: 'K', seats: [1,2,3,4,5,6,7, 'x', 8,9,10,11,12,13, 'x', 14,15,16,17,18,19,20] },
+  ];
+
+  // Build list of all seat IDs
+  const ALL_SEATS = [];
+  ROWS.forEach(row => {
+    row.seats.forEach(s => {
+      if (s !== 'x') ALL_SEATS.push(`${row.label}${s}`);
+    });
+  });
+
+  document.getElementById('totalSeats').textContent = ALL_SEATS.length;
+
+  // ─── Render venue ─────────────────────────────────────────
+  const venueEl = document.getElementById('venue');
+
+  function renderVenue() {
+    venueEl.innerHTML = '';
+    ROWS.forEach(row => {
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'row';
+
+      const labelL = document.createElement('div');
+      labelL.className = 'row-label';
+      labelL.textContent = row.label;
+      rowDiv.appendChild(labelL);
+
+      const seatsDiv = document.createElement('div');
+      seatsDiv.className = 'seats';
+
+      row.seats.forEach(s => {
+        const el = document.createElement('div');
+        if (s === 'x') {
+          el.className = 'seat aisle';
+        } else {
+          const seatId = `${row.label}${s}`;
+          el.className = 'seat';
+          el.id = `seat-${seatId}`;
+          el.textContent = s;
+          el.title = `Seat ${seatId}`;
+          el.addEventListener('click', () => onSeatClick(seatId));
+        }
+        seatsDiv.appendChild(el);
+      });
+
+      rowDiv.appendChild(seatsDiv);
+
+      const labelR = document.createElement('div');
+      labelR.className = 'row-label';
+      labelR.textContent = row.label;
+      rowDiv.appendChild(labelR);
+
+      venueEl.appendChild(rowDiv);
+    });
+  }
+
+  renderVenue();
+
+  // ─── UI helpers ───────────────────────────────────────────
+  const overlay = document.getElementById('overlay');
+  const connDot = document.getElementById('connDot');
+  const connStatus = document.getElementById('connStatus');
+  const bookedCountEl = document.getElementById('bookedCount');
+  const availCountEl = document.getElementById('availCount');
+  const myCountEl = document.getElementById('myCount');
+  const logEntries = document.getElementById('logEntries');
+
+  function updateSeatUI(seatId, bookedBy) {
+    const el = document.getElementById(`seat-${seatId}`);
+    if (!el) return;
+
+    el.classList.remove('booked', 'mine');
+    if (bookedBy && bookedBy === CLIENT_ID) {
+      el.classList.add('mine');
+      el.title = `Seat ${seatId} (Your booking — click to release)`;
+    } else if (bookedBy) {
+      el.classList.add('booked');
+      el.title = `Seat ${seatId} (Taken)`;
+    } else {
+      el.title = `Seat ${seatId} (Available)`;
+    }
+  }
+
+  function flashSeat(seatId) {
+    const el = document.getElementById(`seat-${seatId}`);
+    if (!el) return;
+    el.classList.remove('booked-flash');
+    void el.offsetWidth;
+    el.classList.add('booked-flash');
+  }
+
+  function updateCounts() {
+    let booked = 0;
+    let mine = 0;
+
+    ALL_SEATS.forEach(seatId => {
+      const val = seatStates[seatId];
+      if (val) {
+        booked++;
+        if (val === CLIENT_ID) mine++;
+      }
+    });
+
+    bookedCountEl.textContent = booked;
+    availCountEl.textContent = ALL_SEATS.length - booked;
+    myCountEl.textContent = mine;
+  }
+
+  function addLog(message, type) {
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    const now = new Date();
+    const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    entry.innerHTML = `<span class="time">${time}</span> ${message}`;
+    logEntries.insertBefore(entry, logEntries.firstChild);
+
+    // Keep max 20 entries
+    while (logEntries.children.length > 20) {
+      logEntries.removeChild(logEntries.lastChild);
+    }
+  }
+
+  // ─── Local state tracking ────────────────────────────────
+  // seatId -> clientId or null
+  const seatStates = {};
+
+  // ─── Connect to Ably (v2.16+ LiveObjects API) ─────────────
+  const client = new Ably.Realtime({
+    key: API_KEY,
+    clientId: CLIENT_ID,
+    plugins: { LiveObjects: AblyLiveObjectsPlugin },
+  });
+
+  client.connection.on('connected', () => {
+    connDot.className = 'dot connected';
+    connStatus.textContent = `Connected (${CLIENT_ID})`;
+  });
+
+  client.connection.on('connecting', () => {
+    connDot.className = 'dot connecting';
+    connStatus.textContent = 'Connecting...';
+  });
+
+  client.connection.on('disconnected', () => {
+    connDot.className = 'dot';
+    connStatus.textContent = 'Disconnected';
+  });
+
+  client.connection.on('failed', () => {
+    connDot.className = 'dot failed';
+    connStatus.textContent = 'Connection failed';
+    overlay.querySelector('p').textContent = 'Connection failed. Check API key.';
+  });
+
+  // ─── Set up LiveObjects ───────────────────────────────────
+  const channel = client.channels.get(CHANNEL_NAME, {
+    modes: ['PUBLISH', 'SUBSCRIBE', 'OBJECT_SUBSCRIBE', 'OBJECT_PUBLISH', 'PRESENCE'],
+  });
+
+  // ─── Presence: track connected users ─────────────────────
+  const userCountEl = document.getElementById('userCount');
+  async function updatePresenceCount() {
+    try {
+      const members = await channel.presence.get();
+      userCountEl.textContent = members.length;
+    } catch (e) { /* ignore */ }
+  }
+  channel.presence.subscribe(async (msg) => {
+    updatePresenceCount();
+    // When a user leaves, release all their booked seats
+    if (msg.action === 'leave' && root) {
+      const leftClientId = msg.clientId;
+      ALL_SEATS.forEach(seatId => {
+        const pathObj = root.get(seatId);
+        const val = pathObj ? pathObj.value() : null;
+        if (val === leftClientId) {
+          root.set(seatId, '');
+          addLog(`<span class="seat-id">${seatId}</span> auto-released (user left)`, 'unbook');
+        }
+      });
+    }
+  });
+  client.connection.on('connected', () => {
+    channel.presence.enter().then(() => updatePresenceCount());
+  });
+
+  // ─── Clear all seats ───────────────────────────────────────
+  window.clearAllSeats = async function() {
+    if (!root) return;
+    ALL_SEATS.forEach(seatId => {
+      const pathObj = root.get(seatId);
+      const val = pathObj ? pathObj.value() : null;
+      if (val) root.set(seatId, '');
+    });
+    addLog('All seats cleared', '');
+  };
+
+  // root is a PathObject wrapping the root LiveMap
+  let root;
+
+  try {
+    root = await channel.object.get();
+
+    // Read current state from the root map
+    // Each seat is stored as a key like "A1" with value being the clientId or empty string
+    function syncFromRoot() {
+      ALL_SEATS.forEach(seatId => {
+        const pathObj = root.get(seatId);
+        const val = pathObj ? pathObj.value() : null;
+        seatStates[seatId] = val || null;
+        updateSeatUI(seatId, val || null);
+      });
+      updateCounts();
+    }
+
+    // Initial sync
+    syncFromRoot();
+
+    // Subscribe to root map updates to catch all seat changes
+    root.subscribe(() => {
+      ALL_SEATS.forEach(seatId => {
+        const pathObj = root.get(seatId);
+        const val = pathObj ? pathObj.value() : null;
+        const prev = seatStates[seatId];
+        seatStates[seatId] = val || null;
+
+        if ((val || null) !== (prev || null)) {
+          updateSeatUI(seatId, val || null);
+          flashSeat(seatId);
+
+          // Log the change
+          if (val) {
+            const who = val === CLIENT_ID ? 'You' : val;
+            addLog(`<span class="seat-id">${seatId}</span> booked by ${who}`, 'book');
+          } else if (prev) {
+            addLog(`<span class="seat-id">${seatId}</span> released`, 'unbook');
+          }
+        }
+      });
+      updateCounts();
+    });
+
+    // Hide overlay
+    overlay.classList.add('hidden');
+
+    addLog('Connected — click a seat to book it', '');
+
+  } catch (err) {
+    console.error('LiveObjects setup error:', err);
+    overlay.querySelector('p').textContent = `Error: ${err.message}`;
+  }
+
+  // ─── Seat click handler ───────────────────────────────────
+  async function onSeatClick(seatId) {
+    if (!root) return;
+    const pathObj = root.get(seatId);
+    const current = pathObj ? pathObj.value() : null;
+
+    if (current === CLIENT_ID) {
+      // Un-book our own seat
+      await root.set(seatId, '');
+    } else if (!current) {
+      // Book an available seat
+      await root.set(seatId, CLIENT_ID);
+    }
+    // If booked by someone else, do nothing
+  }
+
+})();
+</script>
+
+</body>
+</html>
